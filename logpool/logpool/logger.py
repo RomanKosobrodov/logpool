@@ -8,15 +8,15 @@ def worker_task(args):
     seed, count = args
 
     process = current_process()
-    task_logger = logging.getLogger(name=process.name)
-    task_logger.debug(f"Worker task started as process \"{process.name}\"; seed={seed}; count={count}")
+    worker_logger = logging.getLogger(name=process.name)
+    worker_logger.debug(f"Worker task started as process \"{process.name}\"; seed={seed}; count={count}")
 
     random.seed(seed)
     result = random.randint(0, 1000)
     for k in range(1, count):
         result = (result * (count - 1) + random.randint(0, 1000)) / count
 
-    task_logger.info(f"Worker process \"{process.name}\" finished calculations, result={result:.3f}")
+    worker_logger.info(f"Worker process \"{process.name}\" finished calculations, result={result:.3f}")
     return result
 
 
@@ -36,25 +36,25 @@ class Sink:
         self.queue = Queue()
         self.process = None
 
-    def do_logging(self):
+    def _do_logging(self):
         root_logger = logging.getLogger()
-        handler = logging.handlers.RotatingFileHandler(filename=self.kwargs["filename"],
+        file_handler = logging.handlers.RotatingFileHandler(filename=self.kwargs["filename"],
                                                  mode=self.kwargs["mode"],
                                                  maxBytes=self.kwargs["maxBytes"],
                                                  backupCount=self.kwargs["backupCount"])
         formatter = logging.Formatter(fmt=self.kwargs["format"])
-        handler.setFormatter(formatter)
-        root_logger.addHandler(handler)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
 
         while True:
             record = self.queue.get()
             if isinstance(record, self.Sentinel):
                 break
-            logger = logging.getLogger(record.name)
-            logger.handle(record)
+            sink_logger = logging.getLogger(record.name)
+            sink_logger.handle(record)
 
     def start(self):
-        self.process = Process(target=self.do_logging)
+        self.process = Process(target=self._do_logging)
         self.process.start()
 
     def stop(self):
@@ -79,7 +79,7 @@ if __name__ == "__main__":
     sink.start()
 
     logger.debug("Starting the tasks")
-    task_size = 1000
+    task_size = 10000
     tasks = ((3264328, task_size), (87529, task_size), (64209, task_size), (87529, task_size))
     for r in pool.imap(worker_task, tasks):
         print(f"{r:.3f}")
