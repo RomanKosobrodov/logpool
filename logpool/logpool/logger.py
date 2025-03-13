@@ -12,9 +12,9 @@ def worker_task(args):
     worker_logger.debug(f"Worker task started as process \"{process.name}\"; seed={seed}; count={count}")
 
     random.seed(seed)
-    result = random.randint(0, 1000)
+    result = random.randint(0, 1000) / count
     for k in range(1, count):
-        result = (result * (count - 1) + random.randint(0, 1000)) / count
+        result += random.randint(0, 1000) / count
 
     worker_logger.info(f"Worker process \"{process.name}\" finished calculations, result={result:.3f}")
     return result
