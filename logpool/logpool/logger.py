@@ -87,6 +87,8 @@ if __name__ == "__main__":
     logger.debug("Stopping the sink")
 
     sink.stop()
-
+    pool.close()
+    pool.terminate()
+    pool.join()
 
 
