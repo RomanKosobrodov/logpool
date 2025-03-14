@@ -20,29 +20,26 @@ def worker_task(args):
     return result
 
 
-def init_logger(log_queue, level=logging.DEBUG):
-    handler = logging.handlers.QueueHandler(log_queue)
-    root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
-    root_logger.setLevel(level)
-
-
 class Sink:
     class Sentinel:
         pass
 
-    def __init__(self, **kwargs):
+    def __init__(self,
+                 fmt="%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s",
+                 handler=logging.handlers.RotatingFileHandler,
+                 *args,
+                 **kwargs):
+        self.handler = handler
+        self.fmt = fmt
+        self.args = args
         self.kwargs = kwargs
         self.queue = Queue()
         self.process = None
 
     def _do_logging(self):
         root_logger = logging.getLogger()
-        file_handler = logging.handlers.RotatingFileHandler(filename=self.kwargs["filename"],
-                                                 mode=self.kwargs["mode"],
-                                                 maxBytes=self.kwargs["maxBytes"],
-                                                 backupCount=self.kwargs["backupCount"])
-        formatter = logging.Formatter(fmt=self.kwargs["format"])
+        file_handler = self.handler(*self.args, **self.kwargs)
+        formatter = logging.Formatter(fmt=self.fmt)
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
@@ -64,29 +61,52 @@ class Sink:
         self.process.join()
 
 
+class LoggingPool:
+    def __init__(self,
+                 processes=None,
+                 initializer=None,
+                 initargs=None,
+                 maxtasksperchild=None,
+                 level=logging.DEBUG,
+                 *handler_args,
+                 **handler_kwargs):
+        self.level = level
+        self.initializer=initializer
+        self.sink = Sink(*handler_args, **handler_kwargs)
+        pool_init_args = tuple() if initargs is None else initargs
+        self.pool = Pool(processes=processes,
+                         initializer=self._initialize,
+                         initargs=pool_init_args,
+                         maxtasksperchild=maxtasksperchild)
+
+    def _initialize(self, *args):
+        handler = logging.handlers.QueueHandler(self.sink.queue)
+        root_logger = logging.getLogger()
+        root_logger.addHandler(handler)
+        root_logger.setLevel(self.level)
+        if self.initializer is not None:
+            self.initializer(*args)
+
+    def __enter__(self):
+        self.sink.start()
+        return self.pool.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.sink.stop()
+        self.pool.__exit__(exc_type, exc_val, exc_tb)
+
+
 if __name__ == "__main__":
-    sink = Sink(filename="multiprocessing_pool.log",
-                mode="w",
-                maxBytes=20000,
-                backupCount=3,
-                format="%(asctime)s %(processName)-10s %(name)s %(levelname)-8s %(message)s")
-    pool = Pool(processes=2, initializer=init_logger, initargs=(sink.queue,))
-
-    init_logger(sink.queue)
-    logger = logging.getLogger("main")
-    logger.debug("Starting the sink")
-
-    sink.start()
-
-    logger.debug("Starting the tasks")
     task_size = 10000
     tasks = ((3264328, task_size), (87529, task_size), (64209, task_size), (87529, task_size))
-    for r in pool.imap(worker_task, tasks):
-        print(f"{r:.3f}")
+    with LoggingPool(processes=2,
+                     filename="multiprocessing_pool.log",
+                     mode="w",
+                     maxBytes=20000,
+                     backupCount=3) as pool:
+        for r in pool.imap(worker_task, tasks):
+            print(f"{r:.3f}")
 
-    logger.debug("Stopping the sink")
-
-    sink.stop()
 
 
 
